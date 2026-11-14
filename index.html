@@ -113,6 +113,128 @@ carries roughly one-seventeenth the detail information of a native 2× upscale.<
 encoder was given half the bits to describe the soft result, and soft content with too few
 bits develops banding and block edges that were not in the 2K version.</p>
 
+<h2>The cascade myth: does upscaling in two steps beat one?</h2>
+
+<p>Every upscaling forum eventually produces this advice: do not jump 4× in one step, go 2×
+twice, because "the algorithm has less work to do at each stage." It sounds mechanically
+plausible, which is why it survives. It is also false, and the reason it survives is that
+almost nobody measures it.</p>
+
+<p>Six paths from the same 100px source back to a 400px ground truth. <strong>HF%</strong> is
+high-frequency energy relative to the ground truth (the same 2-D FFT radial mask used
+throughout these notes). <strong>coh</strong> is a metric I added for this test: high-frequency
+<em>phase coherence</em> against the ground truth, which asks whether the high frequencies
+present point in the same direction as the real ones. Phase coherence of 1.0 means the
+detail is real; 0.0 means the filter produced energy that has nothing to do with the original
+content.</p>
+
+<pre><code>coh = &lt;Re(F_up * conj(F_gt))&gt;_hf_band
+      / ( |F_up|_hf_band * |F_gt|_hf_band )</code></pre>
+
+<p>On the synthetic Siemens star, 4× from 100px:</p>
+
+<table>
+<thead><tr><th>Path</th><th class="num">PSNR</th><th class="num">SSIM</th>
+<th class="num">HF%</th><th class="num">coh</th><th class="num">p99 grad%</th></tr></thead>
+<tbody>
+<tr><td>single 4× lanczos</td><td class="num">11.60</td><td class="num">0.3611</td><td class="num">1.3</td><td class="num">0.139</td><td class="num">13.7</td></tr>
+<tr><td>cascade 2× + 2× lanczos</td><td class="num">11.60</td><td class="num">0.3619</td><td class="num">1.5</td><td class="num">0.132</td><td class="num">13.9</td></tr>
+<tr><td>cascade 3 steps lanczos</td><td class="num">11.60</td><td class="num">0.3615</td><td class="num">1.5</td><td class="num">0.136</td><td class="num">13.8</td></tr>
+<tr><td>nearest mid, then lanczos</td><td class="num">11.62</td><td class="num">0.3676</td><td class="num"><strong>9.3</strong></td><td class="num"><strong>0.076</strong></td><td class="num"><strong>24.3</strong></td></tr>
+<tr><td>sharpen at mid, then 2×</td><td class="num">11.67</td><td class="num">0.3943</td><td class="num">1.6</td><td class="num">0.133</td><td class="num">20.3</td></tr>
+<tr><td>single 4× + unsharp at end</td><td class="num">11.66</td><td class="num">0.3771</td><td class="num">2.0</td><td class="num">0.141</td><td class="num">16.6</td></tr>
+<tr><td>overshoot to 8×, down to 4×</td><td class="num">11.60</td><td class="num">0.3612</td><td class="num">1.4</td><td class="num">0.138</td><td class="num">13.7</td></tr>
+</tbody>
+</table>
+
+<p>Read the second row against the first. The cascade bought <strong>0.0001 SSIM</strong> and
+<strong>0.2 points of HF</strong>, and actually lost phase coherence — 0.132 versus 0.139. Two
+steps are indistinguishable from one step. Three steps are indistinguishable from two. The
+overshoot detour to 8× and back cost roughly four times the compute for a result identical to
+one step in every column.</p>
+
+<p>The same test on a real photo crop tells the same story with a different absolute scale
+(400px ground truth from a 100px source): single 4× gives PSNR 27.31 / HF 21.1% / coh 0.355;
+cascade 2×+2× gives 27.32 / 21.3% / 0.354. At 2× instead of 4× — 200px to 400px — direct was
+13.69 dB at 21.5% HF and a 300px cascade was 13.68 dB at 21.3%. There is no scale factor at
+which cascading helps. Interpolation is a linear operator; two linear operators of the same
+total scale compose to the same thing, and the only difference is rounding noise in the
+8-bit intermediate.</p>
+
+<div class="callout">
+<p><strong>Why the myth feels true.</strong> Cascading does change one thing: it stores an
+intermediate file. If that intermediate is written as JPEG between steps, the second step is
+now sharpening compression artifacts, and the result looks different. Different is not
+better — it is the same operation plus a generation of loss.</p>
+</div>
+
+<h2>What invented detail costs the encoder</h2>
+
+<p>The fourth row above is the interesting one. "Round it up with nearest-neighbour, then
+smooth" is a real technique — it is how pixel-art upscaling keeps edges crisp. On a star
+pattern it produces <strong>7× the high-frequency energy</strong> of a single Lanczos pass:
+9.3% versus 1.3%.</p>
+
+<p>It also produces <strong>half the phase coherence</strong> — 0.076 versus 0.139. The extra
+energy is not recovered detail. It is the square staircase of nearest-neighbour, low-passed
+just enough to look like texture. PSNR barely notices (11.62, the highest in the table)
+because PSNR is computed per pixel against a blurred reference and staircase artifacts are
+locally small. The p99 gradient, which measures edge overshoot, jumps from 13.7% to 24.3%.</p>
+
+<p>Now the part that connects back to bits per pixel. Invented high-frequency energy is not
+free at encode time. I generated three 4K frames from the same 1080×1620 source — one direct
+upscale, one 2K→4K cascade, one nearest-mid — and encoded each with x264 at CRF 18, 23, 28
+and at a fixed 8M target:</p>
+
+<table>
+<thead><tr><th>Pre-encode 4K frame</th><th class="num">HF vs direct</th>
+<th class="num">CRF 18 bytes</th><th class="num">CRF 23 bytes</th><th class="num">CRF 28 bytes</th>
+<th class="num">bpp @CRF23</th></tr></thead>
+<tbody>
+<tr><td>direct lanczos</td><td class="num">100.0%</td><td class="num">225,718</td><td class="num">140,267</td><td class="num">91,069</td><td class="num">0.1603</td></tr>
+<tr><td>cascade 2K→4K</td><td class="num">95.3%</td><td class="num">225,936</td><td class="num">139,635</td><td class="num">90,965</td><td class="num">0.1596</td></tr>
+<tr><td>nearest mid→4K</td><td class="num"><strong>176.4%</strong></td><td class="num">256,865</td><td class="num">155,524</td><td class="num">96,223</td><td class="num">0.1778</td></tr>
+</tbody>
+</table>
+
+<p>Two clean readings. First, the cascade row is within <strong>0.2% of the direct row at every
+CRF setting</strong> — negative at CRF 23 and 28, which is encoder noise, not a real saving. The
+0.5% loss of HF energy that the cascade introduces shows up as a 0.5% smaller file, and as
+0.10 dB lower PSNR against its own pre-encode frame. Nothing was gained; a little was lost.</p>
+
+<p>Second, the nearest-mid row costs <strong>+14% / +11% / +6%</strong> more bytes at CRF 18 /
+23 / 28 to encode the same content, while its fidelity against its own source frame drops
+(PSNR 46.69 versus 47.47 at CRF 18). The encoder is spending real bits describing a staircase
+that was never in the photograph. This is the bits-per-pixel trap of this page's first
+section, arriving from an unexpected direction: it is not only resolution that eats the
+budget, it is any high-frequency content you manufacture before encoding. Staircase detail
+has the worst possible cost-to-value ratio because it is maximally expensive to encode and
+entirely fictional.</p>
+
+<p>Practical conclusion, in one line: <strong>upscale once, at the final size, and never
+pre-sharpen a frame you are about to encode.</strong> If the frame needs sharpening, sharpen it
+as the last step of the delivery pipeline or not at all — and expect it to cost 5–15% more
+bytes for the halo it adds.</p>
+
+<h2>Reproducing the cascade comparison</h2>
+
+<pre><code># ground truth, low-res source
+python3 -c "from PIL import Image; im=Image.open('gt.png'); \
+  im.resize((100,100), Image.LANCZOS).save('low.png')"
+
+# one step vs two steps, then measure HF energy + phase coherence
+ffmpeg -i low.png -vf scale=400:400:flags=lanczos               one.png
+ffmpeg -i low.png -vf scale=200:200:flags=lanczos -y step.png
+ffmpeg -i step.png -vf scale=400:400:flags=lanczos              two.png
+
+# bit cost of the invented detail
+ffmpeg -i src.jpg -vf scale=1440:2160:flags=neighbor -y mid.png
+ffmpeg -i mid.png -vf scale=2160:3240:flags=lanczos   -y nm4k.png
+for f in direct.png cascade.png nm4k.png; do
+  ffmpeg -i $f -c:v libx264 -crf 23 -pix_fmt yuv420p ${f%.png}.mp4
+  # bpp = size_bytes * 8 / (2160*3240)
+done</code></pre>
+
 <h2>How to decide per file, in one pass</h2>
 
 <ol>
