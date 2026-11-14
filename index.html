@@ -14,6 +14,7 @@
  "author":{"@type":"Organization","name":"UpgoLAB","url":"https://upgolab.com"},
  "publisher":{"@type":"Organization","name":"UpgoLAB","url":"https://upgolab.com"},
  "datePublished":"2026-11-14",
+ "dateModified":"2026-11-15",
  "mainEntityOfPage":"https://celticgemini001.github.io/upgolab-2k-vs-4k-decision/"}
 </script>
 <style>
@@ -44,7 +45,7 @@ footer{margin-top:4rem;padding-top:1.4rem;border-top:1px solid var(--line);font-
 <p class="lede">Two encodes, same bitrate setting, different resolutions. The 4K one gets
 half the bits per pixel. This is arithmetically forced and almost never mentioned, and it
 is why some people report that 4K looks worse than the 2K they rejected.</p>
-<p class="meta">14 November 2026 · x264 encodes measured with ffprobe</p>
+<p class="meta">14 November 2026, updated 15 November 2026 · x264 encodes measured with ffmpeg and ffprobe</p>
 
 <p>The question "should I go 2K or 4K" is usually answered with a resolution argument. It is
 not a resolution argument. It is a budget argument, and the budget is bits per pixel.</p>
@@ -79,10 +80,105 @@ file size for 2.25× the pixels.</p>
 
 <div class="callout">
 <p><strong>The rule that falls out.</strong> To keep quality constant when you double the
-linear resolution, you must roughly quadruple the bitrate. Going 2K→4K at the same bitrate
-is not "the same quality at higher resolution" — it is a deliberate quality cut in exchange
-for pixel count.</p>
+linear resolution, you must raise the bitrate roughly with the pixel count. The version of
+this rule usually repeated says <em>quadruple</em> — that figure turns out to be wrong, and
+the next section measures the real number on both upscaled and native-4K content.</p>
 </div>
+
+<h2>Testing the quadruple-bitrate rule</h2>
+
+<p>The rule above — quadruple the bitrate to hold quality across a linear doubling — is
+repeated everywhere and I had written it on this page without measuring it. Then I measured
+it. It is wrong in both directions, and the way it is wrong is more useful than the rule.</p>
+
+<p>The experiment is an equal-quality ladder. Both deliverables are encoded with the same
+encoder (libx264, <code>-preset slow</code>, yuv420p, single-threaded for determinism) across
+CRF 18–32, and each encode is scored with SSIM against <em>its own</em> pre-encode frame. That
+last detail is the whole point: same-CRF comparisons across resolutions are not comparisons,
+because CRF is a quality target, not a bitrate target — raising the pixel count at fixed CRF
+lets the encoder spend more bits per frame and land at a different quality point. So I solved
+for equal SSIM instead: for each quality level, interpolate the byte count of the 4K stream
+and the 2K stream that hit the same SSIM, and divide.</p>
+
+<pre><code># ladder, both sizes, same encoder settings
+for res in 1440:2160 2160:3240; do
+  for crf in 18 20 22 24 26 28 30 32; do
+    ffmpeg -i ref.png -c:v libx264 -preset slow -crf $crf \
+           -pix_fmt yuv420p -threads 1 out_${res}_${crf}.mp4
+    # SSIM of encode against ref.png, then interpolate log(bytes) at target SSIM
+  done
+done</code></pre>
+
+<p>Run it twice on two different kinds of source, because the answer depends on the source
+more than on the encoder:</p>
+
+<table>
+<thead><tr><th>Source</th><th class="num">Has real detail above 2K?</th>
+<th class="num">Bytes 4K ÷ 2K at equal SSIM</th><th class="num">Same-CRF would say</th></tr></thead>
+<tbody>
+<tr><td>1080×1620 photo, upscaled</td><td class="num">no</td>
+<td class="num"><strong>1.23–1.28×</strong> (mean 1.25)</td><td class="num">1.66–1.70×</td></tr>
+<tr><td>Native 4K synthetic capture</td><td class="num">yes</td>
+<td class="num"><strong>2.08–2.22×</strong> (mean 2.16)</td><td class="num">2.00–2.38×</td></tr>
+<tr><td>Sharp synthetic, upscaled</td><td class="num">no</td>
+<td class="num">1.60–1.69×</td><td class="num">—</td></tr>
+</tbody>
+</table>
+
+<p>Two readings. First, <strong>nothing here is 4×</strong>. The most expensive case measured,
+native 4K detail, needs 2.16× the bytes for equal encoder fidelity — roughly the pixel ratio,
+not double it. The cheapest case, upscaled content with no high-frequency information above
+2K, needs <strong>1.25×</strong>. A frame upscaled from 1080p is mostly smooth at 4K, and
+smooth content is nearly free to encode; the extra 3.89 Mpx cost about a quarter more bytes,
+not 4×.</p>
+
+<p>Second, the direction of the error flips with content. On the upscale source, same-CRF
+overstates the cost by <strong>34%</strong> (1.68× claimed versus 1.25× real) because the 4K
+encode is quietly buying 0.003–0.007 more SSIM. On native 4K content, same-CRF slightly
+<em>understates</em> it at high CRF, where the SSIM gap turns negative and the 4K encode is
+actually the worse one at the same setting. The same-CRF shortcut is not conservative in
+either direction; it is just unmoored.</p>
+
+<div class="callout">
+<p><strong>What replaces the rule.</strong> The number that matters is not "quadruple the
+bitrate" but "what does the extra pixel count actually contain?" Dividing by pixel count is
+only valid when the pixels carry detail. Measured directly: 4K at CRF 24 (SSIM 0.98814)
+lands between 2K at CRF 22 (0.98664) and CRF 20 (0.98888), and costs <strong>1.23×</strong>
+the bytes of a 2K encode at that same quality. So on upscaled content the honest price of the
+bigger frame is about one CRF step of quality plus a quarter more bytes — not 4× the bitrate.</p>
+</div>
+
+<h2>The other side of the ledger: 4K does not degrade faster</h2>
+
+<p>If 4K carried hidden fragility, re-encoding would expose it. Three generations at CRF 23,
+each generation decoded to PNG before the next encode:</p>
+
+<table>
+<thead><tr><th>Deliverable</th><th class="num">Gen 1 SSIM</th><th class="num">Gen 2</th>
+<th class="num">Gen 3</th><th class="num">Loss g1→g3</th><th class="num">Bytes g3 ÷ g1</th></tr></thead>
+<tbody>
+<tr><td>2K (1440×2160)</td><td class="num">0.98527</td><td class="num">0.98116</td>
+<td class="num">0.97798</td><td class="num">−0.00729</td><td class="num">0.937×</td></tr>
+<tr><td>4K (2160×3240)</td><td class="num">0.98916</td><td class="num">0.98606</td>
+<td class="num">0.98348</td><td class="num"><strong>−0.00568</strong></td><td class="num">0.942×</td></tr>
+</tbody>
+</table>
+
+<p>The 4K stream loses <strong>less</strong> SSIM per generation, not more — 0.0057 versus
+0.0073 over two re-encodes. Both streams shrink with each generation, which is the tell: the
+encoder is deleting detail it no longer has to describe, and the file gets smaller as the
+content gets smoother. The 4K chain shrinks slightly less, consistent with having more
+detail left to discard. This is a negative result for the intuition that a larger frame
+accumulates damage faster, and I am recording it as measured rather than arguing the page's
+thesis around it.</p>
+
+<p>One honest limit on all of the above: SSIM saturates on smooth content and stops
+discriminating. On a pure gradient source every encode scores 0.9985–0.9992 across six CRF
+steps and both resolutions — a range of 0.0007, which is noise, and the byte ratios computed
+inside that window (1.15× to 1.70×) are not meaningful. The ratios in the table above come
+from sources with enough structure to keep SSIM off its ceiling. Encoder fidelity is also not
+perceived sharpness: a 4K frame that scores the same SSIM as a 2K frame can still look
+sharper to a viewer who is close enough to resolve it, and SSIM says nothing about that.</p>
 
 <h2>When 4K is genuinely the right answer</h2>
 
