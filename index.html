@@ -37,6 +37,15 @@ td.num{text-align:right;font-variant-numeric:tabular-nums}
 pre{background:#f7f8fa;border:1px solid var(--line);border-radius:8px;padding:1rem;overflow-x:auto;font-size:.86rem}
 footer{margin-top:4rem;padding-top:1.4rem;border-top:1px solid var(--line);font-size:.9rem;color:var(--mut)}
 </style>
+<style>
+.sisternav{margin:2rem 0 0;padding-top:1.2rem;border-top:1px solid #e2e5ea}
+.sisternav p{font-size:.8rem;text-transform:uppercase;letter-spacing:.05em;
+ color:#5b6270;margin:0 0 .6rem}
+.sisternav ul{list-style:none;padding:0;margin:0;display:flex;flex-wrap:wrap;gap:.4rem .9rem}
+.sisternav li{margin:0;font-size:.88rem;line-height:1.4}
+.sisternav a{text-decoration:none;border-bottom:1px solid #d5dae2}
+.sisternav a:hover{border-bottom-color:#0a58ca}
+</style>
 </head>
 <body>
 <main>
@@ -54,7 +63,7 @@ not a resolution argument. It is a budget argument, and the budget is bits per p
 
 <p>Pixels scale with the <em>square</em> of the linear dimension. Going from 2K (1440×2160,
 3.11 Mpx) to 4K (2160×3240, 7.00 Mpx) multiplies pixel count by 2.25. If you keep the same
-bitrate — which is what happens when the encoder target does not change — each pixel gets
+<a href="https://celticgemini001.github.io/upgolab-video-upscaling-limits/">bitrate</a> — which is what happens when the encoder target does not change — each pixel gets
 2.25× fewer bits to describe itself.</p>
 
 <p>Measured on a real 1080×1620 source, re-encoded with x264:</p>
@@ -72,7 +81,7 @@ bitrate — which is what happens when the encoder target does not change — ea
 </tbody>
 </table>
 
-<p>Read across the 8M row: 2K gets 0.4206 bits per pixel, 4K gets 0.2237. Not exactly half,
+<p>Read across the 8M row: 2K gets 0.4206 <a href="https://celticgemini001.github.io/upgolab-output-format-after-upscale/">bits per pixel</a>, 4K gets 0.2237. Not exactly half,
 because the encoder is not perfectly efficient at reallocating, but close. Read across the
 diagonal instead and the useful insight appears: <strong>4K at 16M (0.4242 bpp) is
 essentially the same bit density as 2K at 8M (0.4206 bpp)</strong> — and costs 2.27× the
@@ -274,7 +283,7 @@ pattern it produces <strong>7× the high-frequency energy</strong> of a single L
 <p>It also produces <strong>half the phase coherence</strong> — 0.076 versus 0.139. The extra
 energy is not recovered detail. It is the square staircase of nearest-neighbour, low-passed
 just enough to look like texture. PSNR barely notices (11.62, the highest in the table)
-because PSNR is computed per pixel against a blurred reference and staircase artifacts are
+because PSNR is computed per pixel against a <a href="https://celticgemini001.github.io/upgolab-motion-blur-before-upscale/">blurred reference</a> and staircase artifacts are
 locally small. The p99 gradient, which measures edge overshoot, jumps from 13.7% to 24.3%.</p>
 
 <p>Now the part that connects back to bits per pixel. Invented high-frequency energy is not
@@ -373,16 +382,6 @@ the source ever contain detail to justify them."</p>
 <footer>
 Published by <a href="https://upgolab.com">UpgoLAB</a> — AI photo and short-video upscaling
 in the browser. Measured with x264 at 4M/8M/16M on a 1080×1620 source.
-
-<style>
-.sisternav{margin:2rem 0 0;padding-top:1.2rem;border-top:1px solid #e2e5ea}
-.sisternav p{font-size:.8rem;text-transform:uppercase;letter-spacing:.05em;
- color:#5b6270;margin:0 0 .6rem}
-.sisternav ul{list-style:none;padding:0;margin:0;display:flex;flex-wrap:wrap;gap:.4rem .9rem}
-.sisternav li{margin:0;font-size:.88rem;line-height:1.4}
-.sisternav a{text-decoration:none;border-bottom:1px solid #d5dae2}
-.sisternav a:hover{border-bottom-color:#0a58ca}
-</style>
 
 <nav class="sisternav" aria-label="More measured upscaling guides">
 <p>More measured guides</p>
