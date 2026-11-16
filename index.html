@@ -14,7 +14,7 @@
  "author":{"@type":"Organization","name":"UpgoLAB","url":"https://upgolab.com"},
  "publisher":{"@type":"Organization","name":"UpgoLAB","url":"https://upgolab.com"},
  "datePublished":"2026-11-14",
- "dateModified":"2026-11-15",
+ "dateModified":"2026-11-17",
  "mainEntityOfPage":"https://celticgemini001.github.io/upgolab-2k-vs-4k-decision/"}
 </script>
 <style>
@@ -54,7 +54,7 @@ footer{margin-top:4rem;padding-top:1.4rem;border-top:1px solid var(--line);font-
 <p class="lede">Two encodes, same bitrate setting, different resolutions. The 4K one gets
 half the bits per pixel. This is arithmetically forced and almost never mentioned, and it
 is why some people report that 4K looks worse than the 2K they rejected.</p>
-<p class="meta">14 November 2026, updated 15 November 2026 · x264 encodes measured with ffmpeg and ffprobe</p>
+<p class="meta">14 November 2026, updated 17 November 2026 · x264 encodes measured with ffmpeg and ffprobe</p>
 
 <p>The question "should I go 2K or 4K" is usually answered with a resolution argument. It is
 not a resolution argument. It is a budget argument, and the budget is bits per pixel.</p>
@@ -320,6 +320,148 @@ entirely fictional.</p>
 pre-sharpen a frame you are about to encode.</strong> If the frame needs sharpening, sharpen it
 as the last step of the delivery pipeline or not at all — and expect it to cost 5–15% more
 bytes for the halo it adds.</p>
+
+<h2>Does the codec change the 4K penalty?</h2>
+
+<p>Everything above measured one encoder. If the extra cost of a 4K frame were a property of
+pixels, it should be the same number for every codec — the pixel count is the same, after all.
+It is not. The penalty turns out to be almost entirely a property of <em>how well the codec
+predicts</em>, and the three mainstream encoders disagree by a factor of four.</p>
+
+<p>The method is an equal-quality ladder, run separately for each codec and each size. Eight
+frames, all-intra (<code>-g 1</code>) so no frame borrows quality from its neighbours, single
+threaded for determinism. Each encode is scored with SSIM against the exact pre-encode frames,
+decoded to RGB on both sides so a yuv/tv-range mismatch cannot flatter the score. Then I
+interpolate <code>log(bytes)</code> at a common SSIM target and divide.</p>
+
+<pre><code># one ladder per codec, per resolution, all-intra
+for codec in libx264 libx265 libsvtav1; do
+  for res in 1440:2160 2160:3240; do
+    for crf in $LADDER; do
+      ffmpeg -framerate 25 -i seq/f%03d.png -vf scale=out_range=tv \
+        -c:v $codec -crf $crf -g 1 -threads 1 out.mp4
+    done
+  done
+done
+
+# SSIM in RGB space, so both sides are the same interpretation
+ffmpeg -i out.mp4 -framerate 25 -i seq/f%03d.png \
+  -lavfi '[0:v]format=rgb24[d];[1:v]format=rgb24[r];[d][r]ssim' -f null -</code></pre>
+
+<p>The source is the same 1080×1620 photograph upscaled to 2K (1440×2160, 3.11 Mpx) and 4K
+(2160×3240, 7.00 Mpx) — the exact case where "the 4K looks worse" is reported, because the
+4K frame is 2.25× the pixels carrying detail the source never had. Bit-identical repeat
+encodes were confirmed by md5 before any of this was trusted.</p>
+
+<table>
+<thead><tr><th>Codec</th><th class="num">2K bytes</th><th class="num">4K bytes</th>
+<th class="num">4K ÷ 2K</th><th class="num">bpp 2K</th><th class="num">bpp 4K</th></tr></thead>
+<tbody>
+<tr><td>x264</td><td class="num">360,752</td><td class="num">465,878</td><td class="num">1.291×</td><td class="num">0.1160</td><td class="num">0.0666</td></tr>
+<tr><td>x265</td><td class="num">254,881</td><td class="num">280,266</td><td class="num">1.100×</td><td class="num">0.0819</td><td class="num">0.0400</td></tr>
+<tr><td>AV1 (SVT)</td><td class="num">186,403</td><td class="num">194,595</td><td class="num">1.044×</td><td class="num">0.0599</td><td class="num">0.0278</td></tr>
+</tbody>
+</table>
+
+<p>Read the fourth column. At identical measured quality, x264 charges <strong>1.291×</strong>
+the bytes for 2.25× the pixels. x265 charges 1.100×. AV1 charges <strong>1.044×</strong> — a
+4.4% increase in file size for a 125% increase in pixel count. The pixel ratio is 2.25×, so
+x264 pays 57% of it, x265 49%, AV1 46%.</p>
+
+<div class="callout">
+<p><strong>The "4K is expensive" effect is a codec-era artefact.</strong> It is real and large
+on H.264, which is what most of the advice was written against. On AV1 it is nearly gone. If
+you are still delivering H.264, you are paying 1.29× for the bigger frame; switching the
+delivery codec to AV1 removes almost the entire penalty before you touch a single encoder
+setting.</p>
+</div>
+
+<h2>Same bitrate, different resolution: which one actually looks better?</h2>
+
+<p>The byte ratio answers "what does 4K cost". The question people actually have is the
+reverse: <em>I have a fixed bitrate — should I spend it on 2K or 4K?</em> That is a different
+experiment, so I ran it: identical target bitrates, both resolutions, same codec, SSIM against
+each one's own source.</p>
+
+<table>
+<thead><tr><th>Content</th><th>Codec</th><th class="num">Bitrate</th>
+<th class="num">2K SSIM</th><th class="num">4K SSIM</th><th class="num">Gap</th></tr></thead>
+<tbody>
+<tr><td>Smooth (upscaled)</td><td>x264</td><td class="num">8M</td><td class="num">0.95156</td><td class="num">0.94231</td><td class="num">−0.00925</td></tr>
+<tr><td>Smooth</td><td>x265</td><td class="num">8M</td><td class="num">0.96443</td><td class="num">0.96094</td><td class="num">−0.00349</td></tr>
+<tr><td>Smooth</td><td>AV1</td><td class="num">8M</td><td class="num">0.95557</td><td class="num">0.95074</td><td class="num">−0.00482</td></tr>
+<tr><td>Detailed (native 4K)</td><td>x264</td><td class="num">24M</td><td class="num">0.94624</td><td class="num">0.88095</td><td class="num">−0.06529</td></tr>
+<tr><td>Detailed</td><td>x265</td><td class="num">24M</td><td class="num">0.97691</td><td class="num">0.95436</td><td class="num">−0.02255</td></tr>
+<tr><td>Detailed</td><td>AV1</td><td class="num">24M</td><td class="num">0.98027</td><td class="num">0.96230</td><td class="num">−0.01797</td></tr>
+</tbody>
+</table>
+
+<p>Every gap is negative: at a fixed bitrate the 2K encode always scores higher, because SSIM
+is per-pixel fidelity and the 2K frame has fewer pixels to spend its bits on. Watch the size of
+the gap instead. On smooth upscaled content, x264's 4K frame is 0.0093 SSIM behind — real but
+modest. On detailed native-4K content at 24M the x264 gap is <strong>0.065</strong>, seven
+times larger, and at 12M it is 0.121. The same bitrate that gives a comfortable 0.946 on the
+2K frame gives 0.881 on the 4K frame.</p>
+
+<p>Then invert it: how much extra bitrate does the 4K frame need to climb back to the 2K
+frame's score? On the smooth source at 8M, x264 needs 11.1M (1.39×), x265 10.4M (1.30×), AV1
+10.7M (1.34×). Note that this exceeds the 1.29×/1.10×/1.04× byte ratio from the ladder — the
+two numbers are not interchangeable. The ladder holds SSIM fixed and asks what 4K costs; this
+question holds the 2K bitrate fixed and asks what 4K needs to catch up, and catching up costs
+more than the steady-state ratio because SSIM is saturating near the top of each ladder.</p>
+
+<p>The detailed source produces the most useful negative result in this section: at 12M, the
+x264 4K frame needs <strong>28.2M to match</strong> the 2K frame's 0.895 — 2.35× the bitrate,
+which is <em>less</em> than the 4.0× pixel ratio but far more than the 1.29× the ladder
+predicted. And AV1's 4K frame <strong>never reaches</strong> the 2K frame's 0.974 at any
+bitrate I tested, including 48M. On genuinely detailed content, the AV1 4K encode is not
+catching the AV1 2K encode by adding bits at these levels. That is not a codec defect — it is
+SSIM being per-pixel: the 2K frame is compared against a 2K source that has already thrown
+away the 4K detail, so it starts closer to its target.</p>
+
+<div class="callout">
+<p><strong>What this means for the decision.</strong> The bitrate penalty for 4K is a real
+measurement, not a myth, and it is smallest on AV1. But SSIM is the wrong tool for
+<em>choosing</em> 2K versus 4K, because it scores fidelity to a reference, and a 4K delivery
+is usually chosen precisely to show detail the 2K reference cannot contain. Use the byte
+ratio from the first table to budget, and use a viewing test — not an SSIM column — to decide
+whether the extra pixels are visible.</p>
+</div>
+
+<h2>Reproducing the codec comparison</h2>
+
+<pre><code># equal-quality ladder -> interpolate log(bytes) at matched SSIM
+python3 - &lt;&lt;'PY'
+import json, math
+rows = json.load(open('ladder.json'))
+by = {}
+for r in rows: by.setdefault((r['codec'], r['res']), []).append(r)
+for k in by: by[k].sort(key=lambda r: r['ssim'])
+def interp(c, t, target):
+    p = by[(c, t)]
+    lo = [x for x in p if x['ssim'] &lt;= target][-1]
+    hi = [x for x in p if x['ssim'] &gt;= target][0]
+    f = (target - lo['ssim']) / (hi['ssim'] - lo['ssim'])
+    return math.exp(math.log(lo['bytes']) + f*(math.log(hi['bytes']) - math.log(lo['bytes'])))
+for c in ('x264', 'x265', 'av1'):
+    b2, b4 = interp(c, '2k', 0.945), interp(c, '4k', 0.945)
+    print(f'{c}: 4K/2K = {b4/b2:.3f}x')
+PY</code></pre>
+
+<p>Two details decide whether the result reproduces. All-intra is not optional: at the same CRF
+the all-intra pair costs 1.847× while a GOP-25 pair costs 1.764×, because the 4K encode gets
+more inter-prediction help per frame — a 4.5% swing in the headline number from one flag. Use
+all-intra, or at minimum hold the GOP length fixed across both resolutions. And the ladder must
+be wide enough that both resolutions overlap around the target SSIM; my first attempt used a
+ladder that ran off the top of the 2K curve, and the interpolation silently returned nothing
+for every codec.</p>
+
+<p>If you want the short version to act on: budget with the 1.29×/1.10×/1.04× table, remember
+that the 2K frame will always win the per-pixel score at a fixed bitrate, and settle the
+2K-or-4K question with your eyes at the real viewing distance. The
+<a href="https://celticgemini001.github.io/upgolab-video-upscaling-limits/">resolution
+ceiling</a> that matters here is the source's, not the container's — and if the source never
+had the detail, no codec and no bitrate will invent it.</p>
 
 <h2>Reproducing the cascade comparison</h2>
 
