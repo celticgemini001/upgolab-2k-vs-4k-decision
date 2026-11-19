@@ -14,7 +14,7 @@
  "author":{"@type":"Organization","name":"UpgoLAB","url":"https://upgolab.com"},
  "publisher":{"@type":"Organization","name":"UpgoLAB","url":"https://upgolab.com"},
  "datePublished":"2026-11-14",
- "dateModified":"2026-11-17",
+ "dateModified":"2026-11-19",
  "mainEntityOfPage":"https://celticgemini001.github.io/upgolab-2k-vs-4k-decision/"}
 </script>
 <style>
@@ -427,6 +427,290 @@ is usually chosen precisely to show detail the 2K reference cannot contain. Use 
 ratio from the first table to budget, and use a viewing test — not an SSIM column — to decide
 whether the extra pixels are visible.</p>
 </div>
+
+<h2>The viewing test, finally measured</h2>
+
+<p>The previous section ended by admitting SSIM is the wrong tool for <em>choosing</em>
+between 2K and 4K, and that the honest way to decide is a viewing test. That is a
+convenient place to stop, so I did not stop there. The viewing test is measurable: encode
+both arms, display each one at the size you will actually ship to, and score against the
+truth for <em>that</em> display size. This section is that experiment, and it produces the
+clearest rule on this page.</p>
+
+<p>The trap in every 2K-versus-4K comparison is that each arm gets scored against a
+different reference. Score the 4K file against 4K truth and it loses to a 2K file scored
+against 2K truth, because the 2K source has already discarded the detail the metric would
+have penalised. So the experiment has to be built the other way round: <strong>one reference
+per display size, both arms projected down to it.</strong></p>
+
+<h3>Setup</h3>
+
+<p>Two synthetic 4K truths, 2160×3240, both 72 frames of a slow half-pixel-per-frame pan so
+the encoder has real inter-frame prediction to work with:</p>
+
+<ul>
+  <li><strong>detail</strong> — noise band-limited to 0.485 cycles/px, i.e. energy right up
+  to the 4K Nyquist limit. Hard geometric edges (90px and 70px bars), one large disc.</li>
+  <li><strong>soft</strong> — the same generator, band-limited instead to 0.215 cycles/px,
+  which is the Nyquist limit of the <em>2K</em> grid. Nothing in this source exists above 2K
+  resolution, by construction.</li>
+</ul>
+
+<p>From each truth I derive three references — 4K (the truth itself), 2K (1440×2160) and
+1080 (1080×1620) — all by Lanczos. Then two deliverables per bitrate: the 4K encode, and a
+2K encode made from the 2K reference so neither arm pays for an extra resample it does not
+need. Everything is <code>libx264 -preset slow</code>, yuv420p, <code>-g 25</code>,
+single-threaded, CBR pinned with <code>-maxrate</code> and <code>-bufsize 2×</code> so the
+target actually binds.</p>
+
+<h3>First, does the target bind?</h3>
+
+<p>Equal <em>bitrate target</em> is not equal <em>file size</em>, and the difference is worth
+reporting because it is larger than most people assume. Across thirteen matched rungs on the
+detail content, the 4K file came out at 0.88–1.00× the 2K file — mean <strong>0.938×</strong>.
+On the soft content, 0.97–1.02×, mean 0.995×. So a 4K encode at the same target is
+systematically a little <em>smaller</em>, which is x264's rate control undershooting when
+the content is hard and the frame is large. Both arms land within 12% of each other, which is
+close enough that "same bitrate" is a fair description — but it means bits-per-pixel is doing
+the real work, and bpp differs across the two arms by the full 2.25× pixel ratio:</p>
+
+<table>
+<thead><tr><th>Content</th><th class="num">Rung</th><th class="num">4K bytes</th>
+<th class="num">2K bytes</th><th class="num">4K/2K</th><th class="num">bpp @4K</th>
+<th class="num">bpp @2K</th></tr></thead>
+<tbody>
+<tr><td>detail</td><td class="num">4M</td><td class="num">1,491,317</td><td class="num">1,625,377</td><td class="num">0.92</td><td class="num">0.59</td><td class="num">1.45</td></tr>
+<tr><td>detail</td><td class="num">8M</td><td class="num">3,173,802</td><td class="num">3,476,858</td><td class="num">0.91</td><td class="num">1.26</td><td class="num">3.11</td></tr>
+<tr><td>detail</td><td class="num">12M</td><td class="num">5,021,520</td><td class="num">5,189,393</td><td class="num">0.97</td><td class="num">1.99</td><td class="num">4.63</td></tr>
+<tr><td>soft</td><td class="num">4M</td><td class="num">1,487,616</td><td class="num">1,539,219</td><td class="num">0.97</td><td class="num">0.59</td><td class="num">1.37</td></tr>
+<tr><td>soft</td><td class="num">8M</td><td class="num">2,870,808</td><td class="num">2,843,695</td><td class="num">1.01</td><td class="num">1.14</td><td class="num">2.54</td></tr>
+<tr><td>soft</td><td class="num">16M</td><td class="num">5,616,657</td><td class="num">5,671,169</td><td class="num">0.99</td><td class="num">2.23</td><td class="num">5.06</td></tr>
+</tbody>
+</table>
+
+<p>Detail content needs 1.26 bpp at 4K to look decent; soft content at the same 8M target
+gets 1.14 bpp at 4K and is already near transparent on a 4K screen (SSIM 0.975), while detail
+at the same 1.26 bpp only reaches 0.833. Same bits, same pixel count, and the soft file looks
+far better — which is the point. This is the same conclusion as the bits-per-pixel trap in the
+first table, arrived at from the opposite direction: content, not resolution, sets the bpp you
+need.</p>
+
+<h3>The measurement that matters: equal file size</h3>
+
+<p>Nobody ships "the same bitrate at two resolutions". They ship a file. So the decision is
+made at equal <em>bytes</em>, and the question becomes: at a fixed delivery size, which arm
+looks better on the screen this file will be shown on. I interpolated SSIM linearly in bytes
+across the ladder for both arms and differenced them. Positive means the 4K file wins.</p>
+
+<table>
+<thead><tr><th>Content</th><th class="num">File size</th><th class="num">on 4K screen</th>
+<th class="num">on 2K screen</th><th class="num">on 1080 screen</th></tr></thead>
+<tbody>
+<tr><td>detail</td><td class="num">2.0 MB</td><td class="num">+0.041</td><td class="num">−0.054</td><td class="num">−0.059</td></tr>
+<tr><td>detail</td><td class="num">3.0 MB</td><td class="num">+0.115</td><td class="num">−0.019</td><td class="num">−0.032</td></tr>
+<tr><td>detail</td><td class="num">4.0 MB</td><td class="num">+0.157</td><td class="num"><strong>+0.001</strong></td><td class="num">−0.015</td></tr>
+<tr><td>detail</td><td class="num">5.0 MB</td><td class="num">+0.180</td><td class="num">+0.010</td><td class="num">−0.006</td></tr>
+<tr><td>detail</td><td class="num">5.5 MB</td><td class="num">+0.186</td><td class="num">+0.012</td><td class="num">−0.003</td></tr>
+<tr><td>soft</td><td class="num">2.0 MB</td><td class="num">−0.019</td><td class="num">−0.013</td><td class="num">−0.009</td></tr>
+<tr><td>soft</td><td class="num">3.0 MB</td><td class="num">−0.005</td><td class="num">−0.004</td><td class="num">−0.003</td></tr>
+<tr><td>soft</td><td class="num">4.0 MB</td><td class="num">−0.001</td><td class="num">−0.001</td><td class="num">−0.001</td></tr>
+<tr><td>soft</td><td class="num">5.0 MB</td><td class="num">+0.001</td><td class="num">−0.000</td><td class="num">−0.000</td></tr>
+<tr><td>soft</td><td class="num">5.5 MB</td><td class="num">+0.002</td><td class="num">+0.000</td><td class="num">+0.000</td></tr>
+</tbody>
+</table>
+
+<p>Three things fall out, and only the first one was what I expected.</p>
+
+<p><strong>1. On a 4K screen, the 4K file wins at every size, by a lot.</strong> On detail
+content the gap widens monotonically with budget — +0.041 at 2MB to +0.186 at 5.5MB — because
+that is the only arm with anything above 2K Nyquist to spend the bits on. This is the case
+that justifies 4K delivery and it is not a close call.</p>
+
+<p><strong>2. On a 2K screen the 2K file wins until roughly 4MB, then the 4K file takes
+over — barely.</strong> The crossover is at 3.95MB on detail content, and the margin either
+side of it is a rounding error: +0.001 at 4MB, +0.010 at 5MB. So below ~4MB, encoding at 4K
+and letting the player downscale is strictly worse than encoding at 2K. Above ~4MB it is
+level, and you are paying 2.25× the pixels for nothing visible. The practical reading: if your
+delivery target is a 2K screen, 4K encoding has no quality case at any size — only a
+forward-compatibility case.</p>
+
+<p><strong>3. On a 1080 screen the 2K file wins until 6.6MB.</strong> This is the result I did
+not expect and it is the most useful one. Even at 5.5MB, where the 4K file wins at 2K display,
+it still loses at 1080 by −0.003. The reason is chain length, not resolution: the 1080
+comparison asks the 4K arm to do 2160→1080 in one Lanczos pass after decoding a 4K frame, and
+the 2K arm to do 1440→1080, a 0.75× downscale that barely resamples at all. Shorter chain
+wins. This is the same effect the cascade section found for upscaling, running in reverse.</p>
+
+<h3>The soft-content result is a negative result, and it is the interesting one</h3>
+
+<p>On <code>soft</code> — content with literally nothing above 2K resolution — the 4K file
+should be pure overhead. It is not quite: it crosses over at 4.31MB and wins above that, by
+margins of 0.001 to 0.002. Those margins are noise-level and I would not ship a decision on
+them. But <em>why</em> it wins is worth one paragraph, because it exposes exactly what SSIM
+rewards.</p>
+
+<p>I measured the spectrum of each arm against the truth in the band above 2K Nyquist
+(0.215 cycles/px), using phase coherence to separate real detail from invented detail —
+coherence 1.0 means the high frequencies are the right ones in the right places, 0.0 means
+energetic but unrelated.</p>
+
+<table>
+<thead><tr><th>Arm</th><th class="num">HF energy vs truth</th><th class="num">HF coherence</th>
+<th class="num">Verdict</th></tr></thead>
+<tbody>
+<tr><td>detail truth, 4K encode @8M</td><td class="num">0.97×</td><td class="num">0.89</td><td>real detail, well preserved</td></tr>
+<tr><td>detail, 2K→4K Lanczos</td><td class="num">0.26×</td><td class="num">0.67</td><td>detail genuinely absent</td></tr>
+<tr><td>soft truth, 4K encode @8M</td><td class="num"><strong>2.29×</strong></td><td class="num"><strong>0.60</strong></td><td>invented</td></tr>
+<tr><td>soft, 2K→4K Lanczos</td><td class="num">0.76×</td><td class="num">0.47</td><td>absent</td></tr>
+</tbody>
+</table>
+
+<p>The soft 4K encode carries <strong>2.29× the high-frequency energy of its own source</strong>
+at a coherence of 0.60. It is manufacturing texture that does not exist, and SSIM gives it
+credit for it because per-pixel similarity rewards local contrast. That is the same failure
+mode described earlier in this page under "what invented detail costs" — nearest-neighbour
+mid-steps earned 7× the HF energy at half the coherence and the highest PSNR in the table.
+Same mechanism, appearing here without anyone asking for it: a 4K encoder given a 2K-worth
+signal will spend bits inventing, because that is what minimises its RD cost.</p>
+
+<div class="callout">
+<p><strong>The rule.</strong> Choose by <em>display size</em>, not by source resolution and
+not by pixel count. 4K delivery earns its bytes only on a 4K display, and there it earns them
+at every budget tested. On a 2K display the crossover is ~4MB, above which the 4K file wins by
+less than 0.01 SSIM — you are paying for forward compatibility, not quality. On a 1080 display
+the 4K file does not win at all inside the tested range, because the extra downscale costs
+more than the extra resolution returns.</p>
+</div>
+
+<h3>What 4K actually costs at equal perceived quality</h3>
+
+<p>This is the number the old "quadruple the bitrate" rule was trying to express, and now it
+can be measured directly: interpolate each arm's ladder to a common SSIM target and divide the
+bytes.</p>
+
+<table>
+<thead><tr><th>Content</th><th>Display</th><th class="num">Target SSIM</th>
+<th class="num">2K arm</th><th class="num">4K arm</th><th class="num">Cost</th></tr></thead>
+<tbody>
+<tr><td>detail</td><td>2K screen</td><td class="num">0.85</td><td class="num">1.79 MB</td><td class="num">2.35 MB</td><td class="num"><strong>1.31×</strong></td></tr>
+<tr><td>detail</td><td>2K screen</td><td class="num">0.90</td><td class="num">2.57 MB</td><td class="num">3.09 MB</td><td class="num"><strong>1.20×</strong></td></tr>
+<tr><td>soft</td><td>4K screen</td><td class="num">0.96</td><td class="num">1.79 MB</td><td class="num">2.24 MB</td><td class="num">1.25×</td></tr>
+<tr><td>soft</td><td>4K screen</td><td class="num">0.98</td><td class="num">2.69 MB</td><td class="num">3.20 MB</td><td class="num">1.19×</td></tr>
+<tr><td>soft</td><td>2K screen</td><td class="num">0.96</td><td class="num">1.62 MB</td><td class="num">1.93 MB</td><td class="num">1.20×</td></tr>
+<tr><td>soft</td><td>2K screen</td><td class="num">0.98</td><td class="num">2.19 MB</td><td class="num">2.65 MB</td><td class="num">1.21×</td></tr>
+<tr><td>soft</td><td>1080 screen</td><td class="num">0.98</td><td class="num">1.92 MB</td><td class="num">2.27 MB</td><td class="num">1.18×</td></tr>
+</tbody>
+</table>
+
+<p>The real cost of 4K delivery at equal perceived quality is <strong>1.18–1.31×</strong>. Not
+2.25× (the pixel ratio), not 4× (the folklore), and not 1.0× either. It is close to the pixel
+ratio's square root, which makes sense once you notice that SSIM is dominated by the
+low-frequency structure both arms encode identically — you are paying 2.25× the pixels to
+improve a metric that only partly cares about the pixels you added.</p>
+
+<p>Two cautions on reading that table. It is a <em>matched-quality</em> ratio, so it understates
+what a fixed-budget 4K delivery costs: if you cannot raise the bitrate, the 4K file takes the
+full 2.25× bpp penalty, which is what the first table on this page measures. And it depends on
+the display size, because the 2K arm's own score depends on the display size. Quote the
+display size with the number or the number means nothing.</p>
+
+<h3>This one does change, seen as an export decision</h3>
+
+<p>Everything above assumed you have a 4K master and are choosing between deliveries. The far
+more common situation is the reverse: the master is 2K and someone wants a 4K export anyway,
+to be "future proof". That is a different experiment — upscale the 2K master to 4K, encode it
+at 4K, and compare against just encoding the 2K master, at matched CRF so the encoder's
+quality target is the same on both:</p>
+
+<table>
+<thead><tr><th>Content</th><th class="num">CRF</th><th class="num">2K export</th>
+<th class="num">4K export</th><th class="num">Cost</th><th class="num">2K export @2K</th>
+<th class="num">4K export @2K</th><th class="num">Δ</th></tr></thead>
+<tbody>
+<tr><td>detail</td><td class="num">20</td><td class="num">8.85 MB</td><td class="num">13.06 MB</td><td class="num">1.48×</td><td class="num">0.9706</td><td class="num">0.9589</td><td class="num">−0.0117</td></tr>
+<tr><td>detail</td><td class="num">23</td><td class="num">5.59 MB</td><td class="num">7.58 MB</td><td class="num">1.36×</td><td class="num">0.9526</td><td class="num">0.9489</td><td class="num">−0.0038</td></tr>
+<tr><td>detail</td><td class="num">26</td><td class="num">3.40 MB</td><td class="num">4.69 MB</td><td class="num">1.38×</td><td class="num">0.9255</td><td class="num">0.9350</td><td class="num">+0.0095</td></tr>
+<tr><td>soft</td><td class="num">20</td><td class="num">3.88 MB</td><td class="num">6.36 MB</td><td class="num">1.64×</td><td class="num">0.9924</td><td class="num">0.9958</td><td class="num">+0.0034</td></tr>
+<tr><td>soft</td><td class="num">23</td><td class="num">2.82 MB</td><td class="num">4.66 MB</td><td class="num">1.65×</td><td class="num">0.9879</td><td class="num">0.9936</td><td class="num">+0.0057</td></tr>
+<tr><td>soft</td><td class="num">26</td><td class="num">2.20 MB</td><td class="num">3.60 MB</td><td class="num">1.64×</td><td class="num">0.9804</td><td class="num">0.9901</td><td class="num">+0.0097</td></tr>
+</tbody>
+</table>
+
+<p>Read the detail rows: the 4K export costs 1.36–1.48× the bytes and is <em>worse</em> at
+CRF 20 and 23 on a 2K screen (−0.0117 and −0.0038). At CRF 26 it is better by 0.0095. So on
+genuinely detailed 2K-source content, a 4K export buys nothing you can see on a 2K display and
+costs 40% more — the upscale invented detail, and encoding that invented detail costs bits.
+The soft rows are more interesting still: the 4K export wins by up to +0.0097 at
+<em>less</em> than the 2.25× pixel penalty (1.64×), because the encoder is inventing smooth
+texture that SSIM likes. Both are consistent with the coherence table above.</p>
+
+<p>The honest summary: exporting 4K from a 2K master is a bet on where the file will be
+displayed. It pays on a 4K display and costs 1.4–1.65× to get there. It does not pay on a 2K
+display, where the shorter encode chain wins outright at low CRF. If you cannot name the
+display, encode the resolution the master actually has.</p>
+
+<h3>Reproducing it</h3>
+
+<pre><code># 72-frame truths at 2160x3240, then the 2K and 1080 references
+python3 - &lt;&lt;'PY'
+import numpy as np, os
+from PIL import Image
+rng = np.random.default_rng(20261119)
+H, W = 3240, 2160
+yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
+def bandlimit(n, c):
+    F = np.fft.rfft2(n)
+    r = np.sqrt(np.fft.fftfreq(H)[:,None]**2 + np.fft.rfftfreq(W)[None,:]**2)
+    F[r &gt; c] = 0
+    return np.fft.irfft2(F, s=(H, W)).astype(np.float32)
+def build(cut, name):
+    base = 0.45 + 0.12*np.sin(2*np.pi*xx/(W*0.7)) + 0.10*np.cos(2*np.pi*yy/(H*0.55))
+    t = bandlimit(rng.standard_normal((H,W)).astype(np.float32), cut)
+    t /= t.std()
+    edges = ((xx % 90) &lt; 45)*0.10 - ((yy % 70) &lt; 35)*0.08
+    disc = (((xx-W*.5)**2 + (yy-H*.42)**2) &lt; (W*.18)**2).astype(np.float32)
+    img = np.clip(base + 0.055*t + edges + 0.09*disc, 0, 1)
+    im = Image.fromarray((img*255).astype(np.uint8))
+    for i in range(72):
+        c = im.crop((0,0,2160-int(i*.5),3240-int(i*.5)))
+        for d, s in [(f'seq_{name}',(2160,3240)), (f'ref2k_{name}',(1440,2160)),
+                     (f'ref1080_{name}',(1080,1620))]:
+            os.makedirs(d, exist_ok=True)
+            c.resize(s, Image.LANCZOS).save(f'{d}/f{i:03d}.png')
+build(0.485, 'detail')   # energy to 4K Nyquist
+build(0.215, 'soft')     # nothing above 2K Nyquist, by construction
+PY
+
+# both arms at matched bitrate target (the target binds with maxrate+bufsize)
+for br in 4M 8M 12M 16M; do
+  ffmpeg -framerate 25 -i seq_detail/f%03d.png -c:v libx264 -preset slow \
+    -b:v $br -maxrate $br -bufsize 2*$br -pix_fmt yuv420p -g 25 -threads 1 4k_$br.mp4
+  ffmpeg -framerate 25 -i ref2k_detail/f%03d.png -c:v libx264 -preset slow \
+    -b:v $br -maxrate $br -bufsize 2*$br -pix_fmt yuv420p -g 25 -threads 1 2k_$br.mp4
+done
+
+# score each arm against the reference for the display size, not against its own source
+#   @4K screen : 4k arm as-is        | 2k arm upscaled to 2160x3240
+#   @2K screen : 4k arm downscaled   | 2k arm as-is
+#   @1080      : both downscaled
+ffmpeg -hide_banner -i 4k_8M.mp4 -framerate 25 -i ref2k_detail/f%03d.png \
+  -lavfi '[0:v]format=rgb24,settb=AVTB,scale=1440:2160:flags=lanczos[d];\
+          [1:v]format=rgb24,settb=AVTB[r];[d][r]ssim' -f null - 2&gt;&amp;1 | grep 'All:'
+</code></pre>
+
+<p>Two implementation notes that cost me an afternoon. First, <code>settb=AVTB</code> on both
+branches of the SSIM filter graph — without it ffmpeg warns that the timebases do not match and
+the per-frame pairing silently drifts, which moves the score by hundredths. Second, do not use
+<code>-v error</code> when scoring: the SSIM summary is printed at info level, so
+<code>-v error</code> hides the number you are looking for and the filter reports success with
+no output. I spent longer than I will admit chasing a parser bug that was a logging flag.</p>
+
+<p>If you would rather not build the ladder, the same decision can be made by exporting one
+file at each size from your own master and comparing them at 100% on the display you are
+targeting. That is the test this section quantifies; the numbers above just say what to expect
+before you run it, and the expectation is that the answer turns almost entirely on screen size
+rather than on the footage. The upscaler this page is published alongside exposes both 2K and
+4K output targets, which makes the comparison cheap to run on your own file.</p>
 
 <h2>Reproducing the codec comparison</h2>
 
